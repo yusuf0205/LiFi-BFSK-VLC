@@ -1,0 +1,28 @@
+* =====================================================================
+* Li-Fi BFSK transmitter LED driver  (LTspice / ngspice compatible)
+* ESP32 GPIO (3.3 V square wave, tone f0 or f1) -> Rg -> IRLZ44N low-side
+* switch -> 1 W white LED + series resistor from 5 V.
+* File: /workspace/work/lifi/hardware/tx_driver.cir
+* =====================================================================
+VDD   vdd  0  DC 5
+* GPIO: 15 kHz tone (f1), 3.3 V, 20 ns edges, ~30 ohm pin output resistance
+VGPIO gpio 0  PULSE(0 3.3 0 20n 20n 33.3u 66.67u)
+RPIN  gpio gp 30
+RG    gp   g  100           ; gate resistor: limits GPIO peak current to ~25 mA
+RGS   g    0  100k          ; gate pull-down: LED off while ESP32 boots
+RLED  vdd  la 6.8           ; 2 W metal-oxide; sets ~0.26 A peak
+D1    la   d  LED1W
+M1    d    g  0  IRLZ44N
+
+* ---- models (approximate, fitted to datasheet headline numbers) ----
+* 1 W white LED: Vf ~3.2 V @ 300 mA, junction C ~ 0.5 nF
+.model LED1W D(IS=2.5e-18 N=3 RS=0.5 CJO=500p BV=5 IBV=10u)
+* IRLZ44N: Vth ~1.5-2 V, Rds(on) ~25-35 mOhm @ 4.5 V, Ciss ~1.7 nF, Crss ~ 0.1-0.4 nF
+.model IRLZ44N VDMOS(Rg=2 Vto=1.8 Rd=10m Rs=8m Rb=12m Kp=40 Lambda=0.02
++ Cgdmax=1.2n Cgdmin=0.1n A=0.5 Cgs=1.5n Cjo=0.9n Is=1e-12 mfg=approx)
+* Small-signal-fast alternative for tier B/C (AO3400A: Ciss 630 pF, Qg 6 nC, Vth ~1.05 V)
+.model AO3400 VDMOS(Rg=3 Vto=1.05 Rd=8m Rs=8m Rb=10m Kp=25 Lambda=0.02
++ Cgdmax=0.25n Cgdmin=0.04n A=0.5 Cgs=0.55n Cjo=0.15n Is=1e-12 mfg=approx)
+
+.tran 10n 200u 0 10n
+.end
