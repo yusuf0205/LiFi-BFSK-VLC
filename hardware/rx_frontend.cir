@@ -1,0 +1,87 @@
+* =====================================================================
+* Li-Fi BFSK receiver analog front end  (LTspice / ngspice compatible)
+* BPW34 -> TIA (MCP6022) + ambient-DC servo -> AC-coupled gain stage
+*   -> branch A: MFB band-pass (fc 12.25 kHz, Q 1.5) -> XR2211 input
+*   -> branch B: AC couple + /3 attenuator + Sallen-Key LPF (~58 kHz)
+*               biased at 1.25 V, 3.3 V rail -> ESP32 ADC (GPIO36)
+* AC source = 1 A photocurrent, so V(node) == transimpedance in ohms.
+* File: /workspace/work/lifi/hardware/rx_frontend.cir
+* =====================================================================
+
+* ---------- supplies ----------
+VCC   vcc  0  DC 5
+VREF  vref 0  DC 2.5        ; real build: 10k/10k divider + 10uF, mid-rail
+VCC3  vcc3 0  DC 3.3        ; ESP32 3V3 rail, powers U3 only
+VB2   vb2  0  DC 1.25       ; real build: 22k/13k divider from 3V3 + 10uF
+
+* ---------- photodiode BPW34 (cathode to +5 V, anode to TIA input) ----------
+* 10 uA DC = ambient room light (~2-3 klux on 7.5 mm^2); AC 1 A for transfer
+IPH   vcc  tin  DC 10u AC 1
+CPD   tin  vcc  30p         ; BPW34 Cd ~25-40 pF at 2.5 V reverse bias
+RSH   tin  vcc  1G          ; dark shunt resistance
+
+* ---------- U1A : transimpedance amplifier ----------
+XU1A  vref tin  tout OPAMP
+RF    tout tin  47k
+CF    tout tin  33p
+
+* ---------- U1B + Q1 : ambient-light DC servo (integrator + current sink) ----------
+RI    tout ineg 100k
+CI    iout ineg 39n
+XU1B  vref ineg iout OPAMP
+RB    iout qb   1k
+Q1    tin  qb   qe  BC547B
+RE    qe   0    10k
+
+* ---------- U2A : AC-coupled non-inverting gain stage (x101) ----------
+CC1   tout hin  4.7n
+RHP   hin  vref 10k         ; HPF corner 1/(2*pi*10k*4.7n) = 3.39 kHz
+XU2A  hin  gneg gout OPAMP
+RG2   gout gneg 100k
+RG1   gneg gcap 1k
+CG    gcap vref 100n        ; second HPF corner 1/(2*pi*1k*100n) = 1.59 kHz
+
+* ---------- U2B : branch A, MFB band-pass  f0=12.25 kHz, Q=1.5, H0=-2 ----------
+R1BP  gout mid  4.3k
+R2BP  mid  vref 3.6k
+C1BP  mid  bneg 2.2n
+C2BP  mid  bpout 2.2n
+R3BP  bpout bneg 18k
+XU2B  vref bneg bpout OPAMP
+* coupling into XR2211 pin 2 (internal 20k input impedance)
+CXR   bpout xrin 100n
+RXR   xrin 0 20k
+
+* ---------- U3A (MCP6022 on 3.3 V) : branch B, anti-alias LPF for ESP32 ADC ----------
+CC2   gout ain 1u
+RA1   ain  ax   2k          ; 2k/1k attenuator (/3, Thevenin 667 ohm)
+RA2   ax   vb2  1k
+RSK1  ax   s1   2k          ; Sallen-Key unity gain (2k + 667 source ~ 2.7k)
+RSK2  s1   s2   2.7k
+CSK1  s1   adcbuf 1.5n
+CSK2  s2   vb2  680p
+XU3A  s2   adcbuf adcbuf OPAMP
+RADC  adcbuf adc 100
+CADC  adc  0    1n          ; charge reservoir at ESP32 ADC pin
+
+* ---------- models ----------
+* Single-pole op-amp macro ~ MCP6022: GBW 10 MHz, A0 100 dB, Cin 6 pF
+.subckt OPAMP inp inn out
+RIN  inp inn 1T
+CINP inp 0 3p
+CINN inn 0 3p
+E1   n1 0 inp inn 100k
+R1   n1 n2 1k
+C1   n2 0 1.5915u           ; pole at 100 Hz -> GBW = 1e5*100 = 10 MHz
+E2   out 0 n2 0 1
+.ends OPAMP
+
+.model BC547B NPN(IS=2.39E-14 NF=1.008 ISE=3.545E-15 NE=1.541 BF=294.3 IKF=0.1357
++ VAF=63.2 NR=1.004 ISC=6.272E-14 NC=1.243 BR=7.946 IKR=0.1144 VAR=25.9
++ RB=1 IRB=1E-06 RBM=1 RE=0.4683 RC=0.85 XTB=0 EG=1.11 XTI=3 CJE=1.358E-11
++ VJE=0.65 MJE=0.3279 TF=4.391E-10 XTF=120 VTF=2.643 ITF=0.7495 PTF=0
++ CJC=3.728E-12 VJC=0.3997 MJC=0.2955 XCJC=0.6193 FC=0.9579 CJS=0 VJS=0.75
++ MJS=0.333 TR=1E-32)
+
+.ac dec 200 10 1Meg
+.end
