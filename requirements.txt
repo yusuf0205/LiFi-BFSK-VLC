@@ -1,0 +1,6 @@
+numpy
+scipy
+matplotlib
+pytest
+pyserial
+# optional: ziglang (C++ compiler for tests/host if no g++/clang++)
